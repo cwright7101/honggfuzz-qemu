@@ -24,10 +24,7 @@ import tempfile
 import re
 import signal
 from tarfile import TarFile, TarInfo
-try:
-    from StringIO import StringIO
-except ImportError:
-    from io import StringIO
+from io import StringIO
 from shutil import copy, rmtree
 from pwd import getpwuid
 from datetime import datetime, timedelta
@@ -41,6 +38,8 @@ DEVNULL = open(os.devnull, 'wb')
 
 def _text_checksum(text):
     """Calculate a digest string unique to the text content"""
+    if isinstance(text, str):
+        text = text.encode('utf-8')
     return hashlib.sha1(text).hexdigest()
 
 
@@ -87,8 +86,9 @@ def _get_so_libs(executable):
     libs = []
     ldd_re = re.compile(r"(/.*/)(\S*)")
     try:
-        ldd_output = subprocess.check_output(["ldd", executable])
-        for line in ldd_output.split("\n"):
+        ldd_output = subprocess.check_output(["ldd", executable],
+                                             text=True)
+        for line in ldd_output.splitlines():
             search = ldd_re.search(line)
             if search and len(search.groups()) == 2:
                 so_path = search.groups()[0]
@@ -145,12 +145,12 @@ def _check_binfmt_misc(executable):
 
     with open(binfmt_entry) as x: entry = x.read()
 
-    if re.search("flags:.*F.*\n", entry):
+    if re.search(r"flags:.*F.*\n", entry):
         print("binfmt_misc for %s uses persistent(F) mapping to host binary" %
               (binary))
         return None, True
 
-    m = re.search("interpreter (\S+)\n", entry)
+    m = re.search(r"interpreter (\S+)\n", entry)
     interp = m.group(1)
     if interp and interp != executable:
         print("binfmt_misc for %s does not point to %s, using %s" %
@@ -234,9 +234,12 @@ class Docker(object):
         return self._do_kill_instances(True)
 
     def _output(self, cmd, **kwargs):
-        return subprocess.check_output(self._command + cmd,
+        data = subprocess.check_output(self._command + cmd,
                                        stderr=subprocess.STDOUT,
                                        **kwargs)
+        if isinstance(data, bytes):
+            data = data.decode('utf-8')
+        return data
 
     def inspect_tag(self, tag):
         try:
@@ -257,7 +260,10 @@ class Docker(object):
         if argv is None:
             argv = []
 
-        tmp_df = tempfile.NamedTemporaryFile(dir=docker_dir, suffix=".docker")
+        tmp_df = tempfile.NamedTemporaryFile(dir=docker_dir,
+                                             suffix=".docker",
+                                             mode='w',
+                                             encoding='utf-8')
         tmp_df.write(dockerfile)
 
         if user:
@@ -360,7 +366,8 @@ class BuildCommand(SubCommand):
                             help="Dockerfile name")
 
     def run(self, args, argv):
-        dockerfile = open(args.dockerfile, "rb").read()
+        with open(args.dockerfile, "r", encoding='utf-8') as dfh:
+            dockerfile = dfh.read()
         tag = args.tag
 
         dkr = Docker()
@@ -406,7 +413,7 @@ class BuildCommand(SubCommand):
                 cksum += [(filename, _file_checksum(filename))]
 
             argv += ["--build-arg=" + k.lower() + "=" + v
-                     for k, v in os.environ.iteritems()
+                     for k, v in os.environ.items()
                      if k.lower() in FILTERED_ENV_NAMES]
             dkr.build_image(tag, docker_dir, dockerfile,
                             quiet=args.quiet, user=args.user, argv=argv,
@@ -573,7 +580,8 @@ class CheckCommand(SubCommand):
                 print("Need a dockerfile for tag:%s" % (tag))
                 return 1
 
-            dockerfile = open(args.dockerfile, "rb").read()
+            with open(args.dockerfile, "r", encoding='utf-8') as dfh:
+                dockerfile = dfh.read()
 
             if dkr.image_matches_dockerfile(tag, dockerfile):
                 if not args.quiet:
