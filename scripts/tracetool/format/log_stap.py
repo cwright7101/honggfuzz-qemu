@@ -78,7 +78,7 @@ def c_fmt_to_stap(fmt):
     elif state == STATE_LITERAL:
         bits.append(literal)
 
-    fmt = re.sub("%(\d*)z(x|u|d)", "%\\1\\2", "".join(bits))
+    fmt = re.sub(r"%(\d*)z(x|u|d)", r"%\1\2", "".join(bits))
     return fmt
 
 def generate(events, backend, group):
